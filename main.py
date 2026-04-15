@@ -44,10 +44,10 @@ def get_bgr_ss(monitor):
 
 # for input text ingame
 def type_in_game(text):
-    pyperclip.copy(text)
-    pyin.keyDown('ctrl')
-    pyin.press('v')
-    pyin.keyUp('ctrl')
+    """Direct keyboard press - reliable untuk game"""
+    for char in text:
+        pyin.press(char)
+        time.sleep(0.1)  # 0.1 detik per karakter - balanced antara speed & reliability
 
 # take img and templateimg, compare it and return the coordinate if matched
 def get_match_template_coor(img, template, method): 
@@ -65,10 +65,10 @@ img = get_bgr_ss(monitor)
 world_name_field_template = cv2.imread("template/world_name_input.png")
 world_field_coor = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
 while not world_field_coor:
-    print("not found..")
+    print("Menunggu homepage pixelworld...")
     time.sleep(1)
     img = get_bgr_ss(monitor)
-    world_field = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
+    world_field_coor = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
 
 # Function to auto-enter world
 def auto_enter_world(world_name="fish1", max_retries=3):
@@ -76,7 +76,7 @@ def auto_enter_world(world_name="fish1", max_retries=3):
     Otomatis masuk ke world dengan nama yang diberikan
     Return True jika berhasil, False jika gagal
     """
-    global world_field_coor
+    global world_name_field_template
     
     for attempt in range(max_retries):
         try:
@@ -87,33 +87,77 @@ def auto_enter_world(world_name="fish1", max_retries=3):
             world_field_coor = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
             
             if not world_field_coor:
-                print("⚠ World name field tidak ditemukan, retry...")
+                print("⚠ World name field tidak ditemukan, wait...")
                 time.sleep(1)
                 continue
             
-            # Click pada world name input field
+            # Click pada world name input field dengan offset yang sudah benar
+            # world_field_coor sudah relative ke window, monitor["left"] & ["top"] adalah window position
             click_x = world_field_coor[0] + monitor["left"]
             click_y = world_field_coor[1] + monitor["top"]
             
-            print(f"📍 Clicking at ({click_x}, {click_y})...")
+            print(f"📍 Clicking pada input field at ({click_x}, {click_y})...")
             pyin.click(click_x, click_y)
             time.sleep(0.5)
+            
+            # Clear field dengan aggressive clearing (triple click + select all + delete)
+            print("🗑️ Clearing field...")
+            # Triple click untuk select all
+            pyin.click(click_x, click_y)
+            pyin.click(click_x, click_y)
+            pyin.click(click_x, click_y)
+            time.sleep(0.3)
+            
+            # Ctrl+A untuk select
+            pyin.keyDown('ctrl')
+            pyin.press('a')
+            pyin.keyUp('ctrl')
+            time.sleep(0.2)
+            
+            # Delete semua dengan delete + backspace
+            pyin.press('delete')
+            time.sleep(0.1)
+            pyin.press('backspace')
+            time.sleep(0.3)
             
             # Type world name
             print(f"⌨️ Typing world name: {world_name}")
             type_in_game(world_name)
-            time.sleep(0.5)
+            time.sleep(1)  # Longer delay untuk memastikan text ter-input
             
-            # Press enter
-            print("🎯 Pressing ENTER...")
-            pyin.press("enter")
-            time.sleep(2)
+            # Cari dan click tombol "Join" (bukan press enter)
+            print("🎯 Mencari tombol Join...")
+            join_button_template = cv2.imread("template/join_button.png") if os.path.exists("template/join_button.png") else None
+            
+            if join_button_template is not None:
+                # Jika ada template untuk join button
+                img = get_bgr_ss(monitor)
+                join_coor = get_match_template_coor(img, join_button_template, cv2.TM_CCOEFF_NORMED)
+                if join_coor:
+                    join_x = join_coor[0] + monitor["left"]
+                    join_y = join_coor[1] + monitor["top"]
+                    print(f"📍 Clicking Join button at ({join_x}, {join_y})...")
+                    pyin.click(join_x, join_y)
+                else:
+                    # Fallback ke press enter
+                    print("Join button tidak ditemukan, fallback ke ENTER...")
+                    pyin.press("enter")
+            else:
+                # Tidak ada template, langsung press enter (atau try press enter multiple times)
+                print("📌 Pressing ENTER untuk submit...")
+                pyin.press("enter")
+                time.sleep(0.2)
+                pyin.press("enter")  # Double press untuk memastikan
+                
+            time.sleep(3)
             
             print(f"✅ Berhasil masuk ke world '{world_name}'!")
             return True
             
         except Exception as e:
             print(f"❌ Error saat masuk world: {e}")
+            import traceback
+            traceback.print_exc()
             time.sleep(1)
     
     print(f"❌ Gagal masuk ke world '{world_name}' setelah {max_retries} kali coba")
@@ -130,32 +174,31 @@ print("Loading strike templates...")
 # Load templates untuk strike detection
 strike_templates = {}
 
-# Coba load bite_the_baits.png sebagai indikator strike
+# FOKUS HANYA ke bite_the_baits.png
 try:
-    strike_templates["bite"] = cv2.imread("template/bite_the_baits.png")
-    print("✓ Loaded bite_the_baits.png")
-except:
-    print("⚠ bite_the_baits.png not found")
+    bite_template = cv2.imread("template/bite_the_baits.png")
+    if bite_template is None:
+        print("❌ ERROR: bite_the_baits.png tidak ditemukan!")
+    else:
+        strike_templates["bite"] = bite_template
+        print("✓ Loaded bite_the_baits.png")
+        print(f"  Template size: {bite_template.shape}")
+except Exception as e:
+    print(f"❌ Error loading bite_the_baits.png: {e}")
 
-# Load semua template dari folder baits/ (1.png - 8.png)
-for i in range(1, 9):
-    try:
-        template_path = f"template/baits/{i}.png"
-        strike_templates[f"strike_{i}"] = cv2.imread(template_path)
-        print(f"✓ Loaded {template_path}")
-    except Exception as e:
-        print(f"⚠ Failed to load template/baits/{i}.png: {e}")
-
+# SKIP baits folder templates (untuk fokus debugging)
 print(f"Total templates loaded: {len(strike_templates)}")
 
 # Function to detect any strike template with multi-scale matching
-def detect_strike(img, templates):
+def detect_strike(img, templates, frame_count=0):
     """
-    Scan image untuk mendeteksi strike pattern dengan scaling 0.2 - 1.5 (10 steps)
-    Return True jika ada yang match, False otherwise
+    Scan image untuk mendeteksi strike pattern dengan scaling 0.1 - 2.0 (12 steps)
+    Return best match score (0.0 - 1.0) as dict
     """
-    # 10 scale steps dari 0.2 sampai 1.5
-    scales = np.linspace(0.1, 2, 12)
+    # 12 scale steps dari 0.1 sampai 2.0
+    scales = np.linspace(0.1, 2.0, 12)
+    
+    best_match = {"name": None, "scale": 0, "max_val": 0}
     
     for template_name, template in templates.items():
         if template is None:
@@ -177,34 +220,67 @@ def detect_strike(img, templates):
             
             # Template matching
             match = cv2.matchTemplate(img, scaled_template, cv2.TM_CCOEFF_NORMED)
-            loc = np.where(match >= 0.6)  # Threshold 0.6
+            max_val = np.max(match)
             
-            if len(loc[0]) > 0:
-                print(f"⚡ STRIKE DETECTED: {template_name} (scale: {scale:.2f})")
-                return True
+            # Track best match
+            if max_val > best_match["max_val"]:
+                best_match = {"name": template_name, "scale": scale, "max_val": max_val}
     
-    return False
+    return best_match
 
 # Main loop - terus monitor dan respond ke strike
 print("\n🎣 Monitoring untuk strike...")
 print("Tekan CTRL+C untuk stop\n")
 
+print("⚙️  Template: bite_the_baits.png ONLY")
+print("⚙️  Strategy: Consecutive detection (min 3 frames @ 0.60+)")
+print("⚙️  Cooldown: 2 detik\n")
+
 strike_cooldown = 0
 last_strike_time = 0
+frame_count = 0
+consecutive_hits = 0
+consecutive_threshold = 0.60  # TURUNKAN drastis ke 0.60 (fokus bite template)
+consecutive_required = 3  # Turunkan ke 3 frame (lebih responsif)
 
 try:
     while True:
         img = get_bgr_ss(monitor)
+        frame_count += 1
         
-        # Deteksi strike
-        if detect_strike(img, strike_templates):
+        # Deteksi strike - return best match score
+        best_match = detect_strike(img, strike_templates, frame_count=frame_count)
+        
+        # Log setiap frame yang promising
+        if best_match["max_val"] >= 0.55:
+            status = "✓" if best_match["max_val"] >= consecutive_threshold else "✗"
+            print(f"[{frame_count}] {status} {best_match['name']} = {best_match['max_val']:.4f} | Consecutive: {consecutive_hits}/{consecutive_required}")
+        
+        # Hitung consecutive detection
+        if best_match["max_val"] >= consecutive_threshold:
+            consecutive_hits += 1
+            if consecutive_hits <= 3:  # Show first 3 consecutive matches
+                print(f"  💓 [{consecutive_hits}/{consecutive_required}] {best_match['name']} ({best_match['max_val']:.4f})")
+        else:
+            # Reset jika tidak match
+            if consecutive_hits > 0:
+                print(f"  ⚠️ Reset! Score {best_match['max_val']:.4f} < {consecutive_threshold}")
+            consecutive_hits = 0
+        
+        # TRIGGER STRIKE hanya jika consecutive hits cukup
+        if consecutive_hits >= consecutive_required:
             current_time = time.time()
-            # Cooldown 0.5 detik untuk avoid multiple triggers
-            if current_time - last_strike_time > 0.5:
-                print("🎯 NARIK! (Press SPACE)")
+            # Cooldown 2 detik untuk avoid multiple triggers
+            if current_time - last_strike_time > 2.0:
+                print(f"\n{'='*60}")
+                print(f"🎯🎯🎯 STRIKE CONFIRMED! NARIK! 🎯🎯🎯")
+                print(f"Template: {best_match['name']}")
+                print(f"Strength: {best_match['max_val']:.4f} | Consecutive Frames: {consecutive_hits}")
+                print(f"{'='*60}\n")
                 pyin.press("space")
                 last_strike_time = current_time
-                time.sleep(0.2)  # Delay before next check
+                consecutive_hits = 0  # Reset counter
+                time.sleep(0.5)
         
         time.sleep(0.1)  # Check setiap 100ms
 

@@ -168,6 +168,65 @@ auto_enter_world("fish1")
 
 time.sleep(2)
 
+# FISHING AUTOMATION
+print("\n" + "="*60)
+print("🎣 FISHING AUTOMATION SYSTEM")
+print("="*60 + "\n")
+
+# Load fish & net templates
+print("Loading fish & net templates...")
+fish_templates = {}
+net_templates = {}
+
+# Load fish templates
+fish_templates["left"] = cv2.imread("template/fish_left.png")
+fish_templates["right"] = cv2.imread("template/fish_right.png")
+
+# Load net templates
+net_templates["left"] = cv2.imread("template/net_left.png")
+net_templates["right"] = cv2.imread("template/net_right.png")
+
+for side in ["left", "right"]:
+    if fish_templates[side] is not None:
+        print(f"✓ Loaded fish_{side}.png")
+    else:
+        print(f"⚠ fish_{side}.png not found")
+    
+    if net_templates[side] is not None:
+        print(f"✓ Loaded net_{side}.png")
+    else:
+        print(f"⚠ net_{side}.png not found")
+
+# Function to cast net
+def cast_net(direction, monitor):
+    """
+    Cast net ke arah fish (left/right)
+    """
+    direction_text = "KIRI" if direction == "left" else "KANAN"
+    print(f"🎣 Casting net to {direction_text}...")
+    
+    net_template = net_templates.get(direction)
+    if net_template is None:
+        print(f"❌ Net template {direction} tidak ditemukan")
+        return False
+    
+    # Get screenshot
+    img = get_bgr_ss(monitor)
+    
+    # Find net template in image
+    net_coor = get_match_template_coor(img, net_template, cv2.TM_CCOEFF_NORMED)
+    
+    if net_coor:
+        click_x = net_coor[0] + monitor["left"]
+        click_y = net_coor[1] + monitor["top"]
+        print(f"📍 Clicking net_{direction} at ({click_x}, {click_y})")
+        pyin.click(click_x, click_y)
+        time.sleep(0.5)
+        return True
+    else:
+        print(f"❌ Net_{direction} template tidak ditemukan di screen")
+        return False
+
 # STRIKE DETECTION & AUTO NARIK (SPACE)
 print("Loading strike templates...")
 
@@ -232,9 +291,13 @@ def detect_strike(img, templates, frame_count=0):
 print("\n🎣 Monitoring untuk strike...")
 print("Tekan CTRL+C untuk stop\n")
 
-print("⚙️  Template: bite_the_baits.png ONLY")
-print("⚙️  Strategy: Consecutive detection (min 3 frames @ 0.60+)")
-print("⚙️  Cooldown: 2 detik\n")
+print("\n" + "="*60)
+print("🎣 FISHING AUTOMATION STATUS")
+print("="*60)
+print(f"✅ Fish Detection: {'ON' if all(fish_templates.values()) else 'PARTIAL'}")
+print(f"✅ Net Casting: {'ON' if all(net_templates.values()) else 'PARTIAL'}")
+print(f"✅ Strike Detection: ON (bite_the_baits template)")
+print("="*60 + "\n")
 
 strike_cooldown = 0
 last_strike_time = 0
@@ -243,18 +306,48 @@ consecutive_hits = 0
 consecutive_threshold = 0.60  # TURUNKAN drastis ke 0.60 (fokus bite template)
 consecutive_required = 3  # Turunkan ke 3 frame (lebih responsif)
 
+last_net_cast_time = 0  # Track waktu cast net terakhir
+last_fish_direction = None  # Track fish direction
+
 try:
     while True:
         img = get_bgr_ss(monitor)
         frame_count += 1
         
+        # === PHASE 1: DETECT FISH & CAST NET ===
+        current_time = time.time()
+        
+        # Check fish_left
+        if fish_templates["left"] is not None:
+            fish_left_coor = get_match_template_coor(img, fish_templates["left"], cv2.TM_CCOEFF_NORMED)
+            if fish_left_coor and (current_time - last_net_cast_time) > 3.0:
+                print(f"\n🐠 FISH DETECTED: LEFT at {fish_left_coor}")
+                cast_net("left", monitor)
+                last_net_cast_time = current_time
+                last_fish_direction = "left"
+                time.sleep(1)
+                continue
+        
+        # Check fish_right
+        if fish_templates["right"] is not None:
+            fish_right_coor = get_match_template_coor(img, fish_templates["right"], cv2.TM_CCOEFF_NORMED)
+            if fish_right_coor and (current_time - last_net_cast_time) > 3.0:
+                print(f"\n🐠 FISH DETECTED: RIGHT at {fish_right_coor}")
+                cast_net("right", monitor)
+                last_net_cast_time = current_time
+                last_fish_direction = "right"
+                time.sleep(1)
+                continue
+        
+        # === PHASE 2: DETECT STRIKE & RESPOND ===
         # Deteksi strike - return best match score
         best_match = detect_strike(img, strike_templates, frame_count=frame_count)
         
         # Log setiap frame yang promising
         if best_match["max_val"] >= 0.55:
             status = "✓" if best_match["max_val"] >= consecutive_threshold else "✗"
-            print(f"[{frame_count}] {status} {best_match['name']} = {best_match['max_val']:.4f} | Consecutive: {consecutive_hits}/{consecutive_required}")
+            fish_info = f" (Fish: {last_fish_direction})" if last_fish_direction else ""
+            print(f"[{frame_count}] {status} {best_match['name']} = {best_match['max_val']:.4f} | Consecutive: {consecutive_hits}/{consecutive_required}{fish_info}")
         
         # Hitung consecutive detection
         if best_match["max_val"] >= consecutive_threshold:

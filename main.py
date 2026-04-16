@@ -4,18 +4,25 @@ import mss
 import cv2
 import pygetwindow as gw
 import pydirectinput as pyin
-import pyperclip
-
 import numpy as np
-import pandas as pd
 
-# Ganti Path mu
-pw_path = r"C:\Users\Zefhana Ananda\OneDrive\Desktop\Pixel Worlds.url"
+# ==========================================
+# KONFIGURASI
+# ==========================================
+PW_PATH = r"C:\Users\User\Desktop\Pixel Worlds.url"
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+TEMPLATE_DIR = os.path.join(SCRIPT_DIR, "template")
+WORLD_NAME = "fish1"  # Ganti dengan nama world yang diinginkan
 
-os.startfile(pw_path)
+# ==========================================
+# SETUP WINDOW
+# ==========================================
+print("🎮 Membuka Pixel Worlds...")
+os.startfile(PW_PATH)
 
+# Tunggu window Pixel World terbuka
 while not gw.getWindowsWithTitle("Pixel World"):
-    print("wait..")
+    print("⏳ Menunggu Pixel Worlds terbuka...")
     time.sleep(1)
 
 windows = gw.getWindowsWithTitle("Pixel World")[0]
@@ -24,7 +31,7 @@ if windows.isMinimized:
     windows.restore()
 windows.activate()
 
-# take the coordinates pixelworld window only (not the entire window)
+# Ambil koordinat window
 monitor = {
     "left": windows.left,
     "top": windows.top,
@@ -34,349 +41,350 @@ monitor = {
 
 sct = mss.mss()
 
-# gray = return screenshoot grayscale, bgr = return gambar full color
-def get_gray_ss(monitor):
-    screenshot = sct.grab(monitor)
-    return cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGRA2GRAY)
+print(f"✅ Window ditemukan: {windows.title}")
+print(f"📏 Ukuran window: {windows.width}x{windows.height}")
+
+# ==========================================
+# FUNGSI HELPER
+# ==========================================
 def get_bgr_ss(monitor):
+    """Ambil screenshot dalam format BGR"""
     screenshot = sct.grab(monitor)
     return cv2.cvtColor(np.array(screenshot), cv2.COLOR_BGRA2BGR)
 
-# for input text ingame
 def type_in_game(text):
-    """Direct keyboard press - reliable untuk game"""
+    """Ketik text di game dengan delay"""
     for char in text:
         pyin.press(char)
-        time.sleep(0.1)  # 0.1 detik per karakter - balanced antara speed & reliability
+        time.sleep(0.1)
 
-# take img and templateimg, compare it and return the coordinate if matched
-def get_match_template_coor(img, template, method): 
-    h, w = template.shape[:-1]
-    match = cv2.matchTemplate(img, template, method)
-    loc = np.where(match >= 0.8)
-    if len(loc[0]) > 0:
-        y = loc[0][0] + h // 2
-        x = loc[1][0] + w // 2
-        return (x, y)                  # didnt return window relative coor
-    else: return 0
-
-#looping until get to homepage pixelworld
-img = get_bgr_ss(monitor)
-world_name_field_template = cv2.imread("template/world_name_input.png")
-world_field_coor = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
-while not world_field_coor:
-    print("Menunggu homepage pixelworld...")
-    time.sleep(1)
-    img = get_bgr_ss(monitor)
-    world_field_coor = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
-
-# Function to auto-enter world
-def auto_enter_world(world_name="fish1", max_retries=3):
+def get_match_template_coor(img, template, threshold=0.65):
     """
-    Otomatis masuk ke world dengan nama yang diberikan
-    Return True jika berhasil, False jika gagal
+    Cari template di image dengan multi-scale matching
+    Return (x, y, confidence) jika ditemukan, None jika tidak
     """
-    global world_name_field_template
+    if template is None or img is None:
+        return None
     
-    for attempt in range(max_retries):
-        try:
-            print(f"\n🌍 Masuk ke world '{world_name}' (attempt {attempt + 1}/{max_retries})...")
-            
-            # Cari world name field
-            img = get_bgr_ss(monitor)
-            world_field_coor = get_match_template_coor(img, world_name_field_template, cv2.TM_CCOEFF_NORMED)
-            
-            if not world_field_coor:
-                print("⚠ World name field tidak ditemukan, wait...")
-                time.sleep(1)
-                continue
-            
-            # Click pada world name input field dengan offset yang sudah benar
-            # world_field_coor sudah relative ke window, monitor["left"] & ["top"] adalah window position
-            click_x = world_field_coor[0] + monitor["left"]
-            click_y = world_field_coor[1] + monitor["top"]
-            
-            print(f"📍 Clicking pada input field at ({click_x}, {click_y})...")
-            pyin.click(click_x, click_y)
-            time.sleep(0.5)
-            
-            # Clear field dengan aggressive clearing (triple click + select all + delete)
-            print("🗑️ Clearing field...")
-            # Triple click untuk select all
-            pyin.click(click_x, click_y)
-            pyin.click(click_x, click_y)
-            pyin.click(click_x, click_y)
-            time.sleep(0.3)
-            
-            # Ctrl+A untuk select
-            pyin.keyDown('ctrl')
-            pyin.press('a')
-            pyin.keyUp('ctrl')
-            time.sleep(0.2)
-            
-            # Delete semua dengan delete + backspace
-            pyin.press('delete')
-            time.sleep(0.1)
-            pyin.press('backspace')
-            time.sleep(0.3)
-            
-            # Type world name
-            print(f"⌨️ Typing world name: {world_name}")
-            type_in_game(world_name)
-            time.sleep(1)  # Longer delay untuk memastikan text ter-input
-            
-            # Cari dan click tombol "Join" (bukan press enter)
-            print("🎯 Mencari tombol Join...")
-            join_button_template = cv2.imread("template/join_button.png") if os.path.exists("template/join_button.png") else None
-            
-            if join_button_template is not None:
-                # Jika ada template untuk join button
-                img = get_bgr_ss(monitor)
-                join_coor = get_match_template_coor(img, join_button_template, cv2.TM_CCOEFF_NORMED)
-                if join_coor:
-                    join_x = join_coor[0] + monitor["left"]
-                    join_y = join_coor[1] + monitor["top"]
-                    print(f"📍 Clicking Join button at ({join_x}, {join_y})...")
-                    pyin.click(join_x, join_y)
-                else:
-                    # Fallback ke press enter
-                    print("Join button tidak ditemukan, fallback ke ENTER...")
-                    pyin.press("enter")
-            else:
-                # Tidak ada template, langsung press enter (atau try press enter multiple times)
-                print("📌 Pressing ENTER untuk submit...")
-                pyin.press("enter")
-                time.sleep(0.2)
-                pyin.press("enter")  # Double press untuk memastikan
-                
-            time.sleep(3)
-            
-            print(f"✅ Berhasil masuk ke world '{world_name}'!")
-            return True
-            
-        except Exception as e:
-            print(f"❌ Error saat masuk world: {e}")
-            import traceback
-            traceback.print_exc()
-            time.sleep(1)
-    
-    print(f"❌ Gagal masuk ke world '{world_name}' setelah {max_retries} kali coba")
-    return False
-
-# Auto-enter world
-auto_enter_world("fish1")
-
-time.sleep(2)
-
-# FISHING AUTOMATION
-print("\n" + "="*60)
-print("🎣 FISHING AUTOMATION SYSTEM")
-print("="*60 + "\n")
-
-# Load fish & net templates
-print("Loading fish & net templates...")
-fish_templates = {}
-net_templates = {}
-
-# Load fish templates
-fish_templates["left"] = cv2.imread("template/fish_left.png")
-fish_templates["right"] = cv2.imread("template/fish_right.png")
-
-# Load net templates
-net_templates["left"] = cv2.imread("template/net_left.png")
-net_templates["right"] = cv2.imread("template/net_right.png")
-
-for side in ["left", "right"]:
-    if fish_templates[side] is not None:
-        print(f"✓ Loaded fish_{side}.png")
-    else:
-        print(f"⚠ fish_{side}.png not found")
-    
-    if net_templates[side] is not None:
-        print(f"✓ Loaded net_{side}.png")
-    else:
-        print(f"⚠ net_{side}.png not found")
-
-# Function to cast net
-def cast_net(direction, monitor):
-    """
-    Cast net ke arah fish (left/right)
-    """
-    direction_text = "KIRI" if direction == "left" else "KANAN"
-    print(f"🎣 Casting net to {direction_text}...")
-    
-    net_template = net_templates.get(direction)
-    if net_template is None:
-        print(f"❌ Net template {direction} tidak ditemukan")
-        return False
-    
-    # Get screenshot
-    img = get_bgr_ss(monitor)
-    
-    # Find net template in image
-    net_coor = get_match_template_coor(img, net_template, cv2.TM_CCOEFF_NORMED)
-    
-    if net_coor:
-        click_x = net_coor[0] + monitor["left"]
-        click_y = net_coor[1] + monitor["top"]
-        print(f"📍 Clicking net_{direction} at ({click_x}, {click_y})")
-        pyin.click(click_x, click_y)
-        time.sleep(0.5)
-        return True
-    else:
-        print(f"❌ Net_{direction} template tidak ditemukan di screen")
-        return False
-
-# STRIKE DETECTION & AUTO NARIK (SPACE)
-print("Loading strike templates...")
-
-# Load templates untuk strike detection
-strike_templates = {}
-
-# FOKUS HANYA ke bite_the_baits.png
-try:
-    bite_template = cv2.imread("template/bite_the_baits.png")
-    if bite_template is None:
-        print("❌ ERROR: bite_the_baits.png tidak ditemukan!")
-    else:
-        strike_templates["bite"] = bite_template
-        print("✓ Loaded bite_the_baits.png")
-        print(f"  Template size: {bite_template.shape}")
-except Exception as e:
-    print(f"❌ Error loading bite_the_baits.png: {e}")
-
-# SKIP baits folder templates (untuk fokus debugging)
-print(f"Total templates loaded: {len(strike_templates)}")
-
-# Function to detect any strike template with multi-scale matching
-def detect_strike(img, templates, frame_count=0):
-    """
-    Scan image untuk mendeteksi strike pattern dengan scaling 0.1 - 2.0 (12 steps)
-    Return best match score (0.0 - 1.0) as dict
-    """
-    # 12 scale steps dari 0.1 sampai 2.0
-    scales = np.linspace(0.1, 2.0, 12)
-    
-    best_match = {"name": None, "scale": 0, "max_val": 0}
-    
-    for template_name, template in templates.items():
-        if template is None:
-            continue
+    try:
+        img_h, img_w = img.shape[:2]
+        templ_h, templ_w = template.shape[:2]
+        best_match = {"x": 0, "y": 0, "confidence": 0, "scale": 1.0}
         
-        orig_h, orig_w = template.shape[:-1]
+        # Coba dengan berbagai skala (0.4x sampai 2.0x)
+        scales = np.linspace(0.4, 2.0, 15)  # 15 tahap scaling
         
-        # Try each scale
         for scale in scales:
-            # Resize template sesuai scale
-            new_w = int(orig_w * scale)
-            new_h = int(orig_h * scale)
+            # Resize template sesuai skala
+            new_w = int(templ_w * scale)
+            new_h = int(templ_h * scale)
             
             # Skip jika template terlalu kecil
             if new_w < 5 or new_h < 5:
+                continue
+            
+            # Skip jika template lebih besar dari image (error dari OpenCV)sh1
+            if new_w > img_w or new_h > img_h:
                 continue
             
             scaled_template = cv2.resize(template, (new_w, new_h))
             
             # Template matching
             match = cv2.matchTemplate(img, scaled_template, cv2.TM_CCOEFF_NORMED)
-            max_val = np.max(match)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(match)
             
-            # Track best match
-            if max_val > best_match["max_val"]:
-                best_match = {"name": template_name, "scale": scale, "max_val": max_val}
+            # Simpan match terbaik
+            if max_val > best_match["confidence"]:
+                best_match["confidence"] = max_val
+                best_match["x"] = max_loc[0] + new_w // 2
+                best_match["y"] = max_loc[1] + new_h // 2
+                best_match["scale"] = scale
+        
+        # Return jika confidence cukup
+        if best_match["confidence"] >= threshold:
+            return (best_match["x"], best_match["y"], best_match["confidence"])
     
-    return best_match
+    except Exception as e:
+        print(f"⚠️ Error template matching: {e}")
+    
+    return None
 
-# Main loop - terus monitor dan respond ke strike
-print("\n🎣 Monitoring untuk strike...")
+# ==========================================
+# TUNGGU HOMEPAGE
+# ==========================================
+print("\n⏳ Tunggu halaman utama Pixel Worlds...")
+world_name_field_template = cv2.imread(os.path.join(TEMPLATE_DIR, "world_name_input.png"))
+
+while True:
+    img = get_bgr_ss(monitor)
+    result = get_match_template_coor(img, world_name_field_template, threshold=0.65)
+    
+    if result is not None:
+        world_field_coor = (result[0], result[1])
+        print("✅ Halaman utama ditemukan!")
+        break
+    
+    print("⏳ Menunggu halaman utama...")
+    time.sleep(1)
+
+# ==========================================
+# MASUK KE WORLD
+# ==========================================
+print(f"\n🌍 Memasukkan nama world: {WORLD_NAME}")
+
+# Click field input
+click_x = world_field_coor[0] + monitor["left"]
+click_y = world_field_coor[1] + monitor["top"]
+
+print(f"📍 Click pada input field...")
+pyin.click(click_x, click_y)
+time.sleep(0.5)
+
+# Clear field
+print("🗑️  Menghapus field...")
+pyin.click(click_x, click_y)
+pyin.click(click_x, click_y)
+pyin.click(click_x, click_y)
+time.sleep(0.2)
+
+pyin.keyDown('ctrl')
+pyin.press('a')
+pyin.keyUp('ctrl')
+time.sleep(0.1)
+
+pyin.press('delete')
+time.sleep(0.1)
+pyin.press('backspace')
+time.sleep(0.2)
+
+# Type world name
+print(f"⌨️  Mengetik: {WORLD_NAME}")
+type_in_game(WORLD_NAME)
+time.sleep(1)
+
+# Press Enter untuk join
+print("✅ Press ENTER untuk masuk...")
+pyin.press('enter')
+time.sleep(0.3)
+pyin.press('enter')
+
+time.sleep(3)
+
+print(f"\n✨ Sudah masuk ke world '{WORLD_NAME}'")
+
+# ==========================================
+# LOAD TEMPLATES
+# ==========================================
+print("\n🎣 Loading templates...")
+
+strike_template_path = os.path.join(TEMPLATE_DIR, "bite_the_baits.png")
+strike_template = cv2.imread(strike_template_path)
+
+fish_left_template = cv2.imread(os.path.join(TEMPLATE_DIR, "fish_left.png"))
+fish_right_template = cv2.imread(os.path.join(TEMPLATE_DIR, "fish_right.png"))
+
+net_left_template = cv2.imread(os.path.join(TEMPLATE_DIR, "net_left.png"))
+net_right_template = cv2.imread(os.path.join(TEMPLATE_DIR, "net_right.png"))
+
+if strike_template is None:
+    print("❌ ERROR: bite_the_baits.png tidak ditemukan!")
+    exit()
+
+if fish_left_template is None or fish_right_template is None:
+    print("⚠️ WARNING: Fish templates tidak lengkap!")
+
+if net_left_template is None or net_right_template is None:
+    print("⚠️ WARNING: Net templates tidak lengkap!")
+
+print("✅ Semua template loaded!")
+
+# ==========================================
+# FUNGSI DETEKSI POSISI NET (AREA IKAN)
+# ==========================================
+def get_net_positions(img):
+    """
+    Deteksi posisi net_left dan net_right
+    Return {'left': (x, y), 'right': (x, y)} atau None
+    """
+    positions = {}
+    
+    # Deteksi net_left
+    if net_left_template is not None:
+        result = get_match_template_coor(img, net_left_template, threshold=0.60)
+        if result is not None:
+            positions['left'] = (result[0], result[1])
+    
+    # Deteksi net_right
+    if net_right_template is not None:
+        result = get_match_template_coor(img, net_right_template, threshold=0.60)
+        if result is not None:
+            positions['right'] = (result[0], result[1])
+    
+    return positions if positions else None
+
+# ==========================================
+# FUNGSI DETEKSI IKAN
+# ==========================================
+def get_fish_position(img):
+    """
+    Deteksi posisi dan arah ikan
+    Return ('left', x, y, confidence) atau ('right', x, y, confidence) atau None
+    """
+    # Deteksi ikan ke kiri
+    if fish_left_template is not None:
+        result = get_match_template_coor(img, fish_left_template, threshold=0.55)
+        if result is not None:
+            return ('left', result[0], result[1], result[2])
+    
+    # Deteksi ikan ke kanan
+    if fish_right_template is not None:
+        result = get_match_template_coor(img, fish_right_template, threshold=0.55)
+        if result is not None:
+            return ('right', result[0], result[1], result[2])
+    
+    return None
+
+# ==========================================
+# MONITORING & AUTO MOVE
+# ==========================================
+print("\n🎣 Menunggu STRIKE pertama kali...")
 print("Tekan CTRL+C untuk stop\n")
 
-print("\n" + "="*60)
-print("🎣 FISHING AUTOMATION STATUS")
-print("="*60)
-print(f"✅ Fish Detection: {'ON' if all(fish_templates.values()) else 'PARTIAL'}")
-print(f"✅ Net Casting: {'ON' if all(net_templates.values()) else 'PARTIAL'}")
-print(f"✅ Strike Detection: ON (bite_the_baits template)")
-print("="*60 + "\n")
-
-strike_cooldown = 0
+strike_count = 0
+move_count = 0
 last_strike_time = 0
-frame_count = 0
-consecutive_hits = 0
-consecutive_threshold = 0.60  # TURUNKAN drastis ke 0.60 (fokus bite template)
-consecutive_required = 3  # Turunkan ke 3 frame (lebih responsif)
+last_move_time = 0
+strike_cooldown = 0.3
+move_cooldown = 0.2
 
-last_net_cast_time = 0  # Track waktu cast net terakhir
-last_fish_direction = None  # Track fish direction
+# State tracking
+waiting_for_strike = True  # Tunggu strike sebelum mulai follow
+a_pressed = False
+d_pressed = False
 
 try:
     while True:
         img = get_bgr_ss(monitor)
-        frame_count += 1
-        
-        # === PHASE 1: DETECT FISH & CAST NET ===
         current_time = time.time()
         
-        # Check fish_left
-        if fish_templates["left"] is not None:
-            fish_left_coor = get_match_template_coor(img, fish_templates["left"], cv2.TM_CCOEFF_NORMED)
-            if fish_left_coor and (current_time - last_net_cast_time) > 3.0:
-                print(f"\n🐠 FISH DETECTED: LEFT at {fish_left_coor}")
-                cast_net("left", monitor)
-                last_net_cast_time = current_time
-                last_fish_direction = "left"
-                time.sleep(1)
-                continue
+        # ===== PHASE 0: TUNGGU STRIKE (AWAL) =====
+        if waiting_for_strike:
+            # Coba deteksi STRIKE dengan threshold yang lebih rendah
+            result = get_match_template_coor(img, strike_template, threshold=0.50)
+            
+            if result is not None:
+                x, y, confidence = result
+                
+                # Press SPACE untuk strike pertama
+                if current_time - last_strike_time > strike_cooldown:
+                    strike_count += 1
+                    print(f"\n[{strike_count}] 🎯 STRIKE DETECTED! (conf: {confidence:.3f}) → PRESS SPACE!")
+                    pyin.press("space")
+                    last_strike_time = current_time
+                    waiting_for_strike = False  # Sekarang mulai follow ikan
+                    print(f"✅ Memulai mengikuti ikan...\n")
+                    time.sleep(0.5)
+            else:
+                # Terus tunggu strike
+                print(".", end="", flush=True)
+                time.sleep(0.1)
         
-        # Check fish_right
-        if fish_templates["right"] is not None:
-            fish_right_coor = get_match_template_coor(img, fish_templates["right"], cv2.TM_CCOEFF_NORMED)
-            if fish_right_coor and (current_time - last_net_cast_time) > 3.0:
-                print(f"\n🐠 FISH DETECTED: RIGHT at {fish_right_coor}")
-                cast_net("right", monitor)
-                last_net_cast_time = current_time
-                last_fish_direction = "right"
-                time.sleep(1)
-                continue
-        
-        # === PHASE 2: DETECT STRIKE & RESPOND ===
-        # Deteksi strike - return best match score
-        best_match = detect_strike(img, strike_templates, frame_count=frame_count)
-        
-        # Log setiap frame yang promising
-        if best_match["max_val"] >= 0.55:
-            status = "✓" if best_match["max_val"] >= consecutive_threshold else "✗"
-            fish_info = f" (Fish: {last_fish_direction})" if last_fish_direction else ""
-            print(f"[{frame_count}] {status} {best_match['name']} = {best_match['max_val']:.4f} | Consecutive: {consecutive_hits}/{consecutive_required}{fish_info}")
-        
-        # Hitung consecutive detection
-        if best_match["max_val"] >= consecutive_threshold:
-            consecutive_hits += 1
-            if consecutive_hits <= 3:  # Show first 3 consecutive matches
-                print(f"  💓 [{consecutive_hits}/{consecutive_required}] {best_match['name']} ({best_match['max_val']:.4f})")
+        # ===== PHASE 1: FOLLOW FISH (SETELAH STRIKE) =====
         else:
-            # Reset jika tidak match
-            if consecutive_hits > 0:
-                print(f"  ⚠️ Reset! Score {best_match['max_val']:.4f} < {consecutive_threshold}")
-            consecutive_hits = 0
-        
-        # TRIGGER STRIKE hanya jika consecutive hits cukup
-        if consecutive_hits >= consecutive_required:
-            current_time = time.time()
-            # Cooldown 2 detik untuk avoid multiple triggers
-            if current_time - last_strike_time > 2.0:
-                print(f"\n{'='*60}")
-                print(f"🎯🎯🎯 STRIKE CONFIRMED! NARIK! 🎯🎯🎯")
-                print(f"Template: {best_match['name']}")
-                print(f"Strength: {best_match['max_val']:.4f} | Consecutive Frames: {consecutive_hits}")
-                print(f"{'='*60}\n")
-                pyin.press("space")
-                last_strike_time = current_time
-                consecutive_hits = 0  # Reset counter
-                time.sleep(0.5)
-        
-        time.sleep(0.1)  # Check setiap 100ms
+            # Deteksi net positions untuk hitung center
+            net_pos = get_net_positions(img)
+            center_x = None
+            
+            if net_pos is not None and 'left' in net_pos and 'right' in net_pos:
+                net_left_x = net_pos['left'][0]
+                net_right_x = net_pos['right'][0]
+                center_x = (net_left_x + net_right_x) / 2
+            
+            # Deteksi ikan
+            fish_info = get_fish_position(img)
+            
+            if fish_info is not None and center_x is not None:
+                direction, fish_x, fish_y, confidence = fish_info
+                tolerance = 30  # Pixel tolerance untuk dianggap centered
+                
+                # Bandingkan posisi ikan dengan center
+                if fish_x < center_x - tolerance:
+                    # Ikan di KIRI center → gerak ke KANAN (press 'd')
+                    if current_time - last_move_time > move_cooldown:
+                        if not d_pressed:
+                            print(f"🐠 Ikan KIRI center ({fish_x:.0f} < {center_x:.0f}) → 'D' (gerak kanan)")
+                            if a_pressed:
+                                pyin.keyUp('a')
+                                a_pressed = False
+                            pyin.keyDown('d')
+                            d_pressed = True
+                        last_move_time = current_time
+                        move_count += 1
+                
+                elif fish_x > center_x + tolerance:
+                    # Ikan di KANAN center → gerak ke KIRI (press 'a')
+                    if current_time - last_move_time > move_cooldown:
+                        if not a_pressed:
+                            print(f"🐠 Ikan KANAN center ({fish_x:.0f} > {center_x:.0f}) → 'A' (gerak kiri)")
+                            if d_pressed:
+                                pyin.keyUp('d')
+                                d_pressed = False
+                            pyin.keyDown('a')
+                            a_pressed = True
+                        last_move_time = current_time
+                        move_count += 1
+                
+                else:
+                    # Ikan CENTERED ✓
+                    if a_pressed or d_pressed:
+                        print(f"✅ Ikan CENTERED! ({fish_x:.0f} ≈ {center_x:.0f})")
+                    if a_pressed:
+                        pyin.keyUp('a')
+                        a_pressed = False
+                    if d_pressed:
+                        pyin.keyUp('d')
+                        d_pressed = False
+            else:
+                # Release tombol jika ikan/net tidak terdeteksi
+                if a_pressed:
+                    pyin.keyUp('a')
+                    a_pressed = False
+                if d_pressed:
+                    pyin.keyUp('d')
+                    d_pressed = False
+            
+            # ===== DETEKSI STRIKE BERIKUTNYA =====
+            result = get_match_template_coor(img, strike_template, threshold=0.50)
+            
+            if result is not None:
+                x, y, confidence = result
+                
+                if current_time - last_strike_time > strike_cooldown:
+                    strike_count += 1
+                    
+                    # Release semua tombol saat strike
+                    if a_pressed:
+                        pyin.keyUp('a')
+                        a_pressed = False
+                    if d_pressed:
+                        pyin.keyUp('d')
+                        d_pressed = False
+                    
+                    print(f"\n[{strike_count}] 🎯 STRIKE! (conf: {confidence:.3f}) → PRESS SPACE!")
+                    pyin.press("space")
+                    last_strike_time = current_time
+                    time.sleep(0.3)
+            
+            time.sleep(0.03)  # Check setiap 30ms
 
 except KeyboardInterrupt:
-    print("\n\n❌ Script stopped by user")
+    # Release semua tombol sebelum exit
+    if a_pressed:
+        pyin.keyUp('a')
+    if d_pressed:
+        pyin.keyUp('d')
+    
+    print(f"\n\n❌ Script stopped by user")
+    print(f"Total strikes: {strike_count}")
+    print(f"Total moves: {move_count}")
     sct.close()
